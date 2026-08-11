@@ -1,0 +1,16 @@
+cff-version: 1.2.0
+message: "If you use target-assembler, please cite this software and the associated study."
+title: "target-assembler"
+type: software
+authors:
+  - family-names: Tynkevich
+    given-names: Yurij
+version: 0.1.0
+date-released: 2026-08-10
+license: MIT
+repository-code: "https://github.com/yurij-tynkevich/target-assembler"
+keywords:
+  - rDNA
+  - tandem repeats
+  - MIRA
+  - short-read assembly

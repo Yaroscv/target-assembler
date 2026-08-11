@@ -1,0 +1,42 @@
+project:
+  name: low_copy_repeat
+  mode: variants
+  outdir: results_single
+  temp_dir: null
+
+input:
+  reads1: reads.fastq.gz
+  reads2: null
+  layout: single
+  hmm: target_profile.hmm
+
+runtime:
+  threads: 8
+  keep_work: false
+
+sampling:
+  mode: adaptive
+  target_hmm_hits: 500
+  minimum_units: 50000
+
+assembly:
+  technology: solexa
+  rounds: 2
+  mira_max_units: 30000
+
+extraction:
+  mode: tandem
+  minimum_model_fraction: 0.75
+
+validation:
+  profile: lenient
+  reference_mode: tandem
+  source: expanded
+  minimum_mapped_fragments: 3
+  minimum_covered_percent: 40
+
+proportion:
+  enabled: false
+
+outputs:
+  save_intermediate_libraries: false

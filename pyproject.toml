@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "target-assembler"
+version = "0.1.0"
+description = "Configurable reference-guided MIRA pipeline for recovering repeat sequence diversity from short-read libraries"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [{name = "Yurij Tynkevich"}]
+dependencies = ["PyYAML>=6.0"]
+keywords = ["bioinformatics", "rDNA", "tandem repeats", "MIRA", "Illumina"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+
+[project.urls]
+Homepage = "https://github.com/yurij-tynkevich/target-assembler"
+Repository = "https://github.com/yurij-tynkevich/target-assembler"
+Issues = "https://github.com/yurij-tynkevich/target-assembler/issues"
+
+[project.scripts]
+target-assembler = "target_assembler.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

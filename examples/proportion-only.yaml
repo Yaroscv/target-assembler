@@ -1,0 +1,21 @@
+project:
+  name: repeat_proportion
+  mode: proportion
+  outdir: proportion_results
+
+input:
+  clean_reads1: cleaned_R1.fastq.gz
+  clean_reads2: cleaned_R2.fastq.gz
+  layout: paired
+  variants_fasta: accepted_variants.fasta
+
+runtime:
+  threads: 16
+  seed: 42
+
+proportion:
+  enabled: true
+  sample_units: 1000000
+  replicates: 3
+  report_metric: aligned_nt
+  include_envelope_metric: true

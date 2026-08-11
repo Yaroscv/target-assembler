@@ -1,0 +1,38 @@
+project:
+  name: high_quality_repeat
+  mode: all
+  outdir: results_strict
+  temp_dir: null
+
+input:
+  reads1: sample_R1.fastq.gz
+  reads2: sample_R2.fastq.gz
+  layout: paired
+  hmm: target_profile.hmm
+
+runtime:
+  threads: 16
+  keep_work: false
+  temp_space_check: true
+  temp_space_margin_gb: 1.0
+
+assembly:
+  technology: solexa
+  insert_size_min: 200
+  insert_size_max: 400
+  mira_max_units: 50000
+
+validation:
+  profile: strict
+  reference_mode: tandem
+  source: clean
+  # Set null or 0 only if you intentionally want to scan the full library.
+  max_units: 1000000
+
+proportion:
+  enabled: true
+  sample_units: 1000000
+  replicates: 3
+
+outputs:
+  save_intermediate_libraries: false

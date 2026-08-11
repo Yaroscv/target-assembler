@@ -1,0 +1,49 @@
+project:
+  mode: all
+  outdir: batch_results
+  temp_dir: null
+
+batch:
+  samples_tsv: samples.tsv
+  continue_on_error: true
+
+input:
+  layout: paired
+  hmm: 5S_profile.hmm
+
+runtime:
+  threads: 16
+  seed: 42
+  keep_work: false
+  temp_space_check: true
+  temp_space_margin_gb: 1.0
+
+sampling:
+  mode: adaptive
+  target_hmm_hits: 1000
+  minimum_units: 100000
+
+assembly:
+  technology: solexa
+  rounds: 2
+  mira_max_units: 30000
+  insert_size_min: 150
+  insert_size_max: 450
+
+extraction:
+  mode: tandem
+  minimum_model_fraction: 0.90
+
+validation:
+  profile: balanced
+  reference_mode: tandem
+
+proportion:
+  enabled: true
+  sample_units: 1000000
+  replicates: 1
+  report_metric: aligned_nt
+  include_envelope_metric: true
+
+outputs:
+  save_intermediate_libraries: false

@@ -1,0 +1,3 @@
+sample	reads1	reads2	assembly.insert_size_min	assembly.insert_size_max	validation.profile
+A_variegatum	reads/A_variegatum_R1.fastq.gz	reads/A_variegatum_R2.fastq.gz	150	450	balanced
+A_napellus	reads/A_napellus_R1.fastq.gz	reads/A_napellus_R2.fastq.gz	180	500	strict

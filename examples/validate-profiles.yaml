@@ -1,0 +1,28 @@
+project:
+  name: Heracleum_5S_validation
+  mode: validate
+  outdir: validation_comparison
+  temp_dir: null
+
+input:
+  validation_reads1: cleaned_R1.fastq.gz
+  validation_reads2: cleaned_R2.fastq.gz
+  variants_fasta: candidates/Repeats_candidates.fasta
+  layout: paired
+
+runtime:
+  threads: 16
+  seed: 42
+
+assembly:
+  # Used only to define valid PE insert sizes during validation.
+  insert_size_min: 150
+  insert_size_max: 450
+
+validation:
+  reference_mode: tandem
+  compare_profiles: [lenient, balanced, strict]
+  comparison_max_units: 1000000
+
+proportion:
+  enabled: false
