@@ -11,7 +11,7 @@ requires-python = ">=3.10"
 license = "MIT"
 authors = [{name = "Yurij Tynkevich"}]
 dependencies = ["PyYAML>=6.0"]
-keywords = ["bioinformatics", "rDNA", "tandem repeats", "MIRA", "Illumina"]
+keywords = ["bioinformatics", "repeated sequences", "target regions", "short-read assembly"]
 classifiers = [
   "Programming Language :: Python :: 3",
   "Topic :: Scientific/Engineering :: Bio-Informatics",

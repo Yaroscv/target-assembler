@@ -6,11 +6,11 @@ authors:
   - family-names: Tynkevich
     given-names: Yurij
 version: 0.1.0
-date-released: 2026-08-10
+date-released: 2026-08-11
 license: MIT
 repository-code: "https://github.com/yurij-tynkevich/target-assembler"
 keywords:
-  - rDNA
-  - tandem repeats
-  - MIRA
+  - bioinformatics
+  - repeated sequences
+  - target regions
   - short-read assembly
