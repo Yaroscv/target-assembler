@@ -431,3 +431,56 @@ def test_run_nhmmer_command_carries_the_threshold(tmp_path):
     # -T and -E are mutually exclusive in HMMER; -T must win, alone
     Fake(hmm_score_min=98.4, hmm_evalue=1e-10).run_nhmmer("in.fa", tmp_path / "t.tbl")
     assert "-T" in recorded["command"] and "-E" not in recorded["command"]
+
+
+# --- _save_library must not copy a file onto itself --------------------------
+# A resume run feeds a previous run's intermediate_libraries/ back in through
+# input.clean_reads1/2; the save step then targets the file it just read.
+
+def test_save_library_skips_a_file_already_in_place(tmp_path):
+    from target_assembler.pipeline import Pipeline
+
+    outdir = tmp_path / "out"
+    (outdir / "intermediate_libraries").mkdir(parents=True)
+    r1 = outdir / "intermediate_libraries" / "clean_R1.fastq.gz"
+    r2 = outdir / "intermediate_libraries" / "clean_R2.fastq.gz"
+    r1.write_bytes(b"one"); r2.write_bytes(b"two")
+
+    class Fake:
+        def __init__(self):
+            self.outdir = outdir
+            self.summary = {"events": []}
+            import logging
+            self.logger = logging.getLogger("t")
+    Fake._save_library = Pipeline._save_library
+    Fake.event = Pipeline.event
+
+    f = Fake()
+    f._save_library((str(r1), str(r2)), "clean")          # would raise SameFileError
+    names = [e["name"] for e in f.summary["events"]]
+    assert "saved_clean_library_already_in_place" in names
+    assert f.summary["events"][0]["value"] == 2
+    assert r1.read_bytes() == b"one" and r2.read_bytes() == b"two"
+
+
+def test_save_library_still_copies_from_elsewhere(tmp_path):
+    from target_assembler.pipeline import Pipeline
+
+    src = tmp_path / "work"; src.mkdir()
+    a = src / "clean_R1.fastq.gz"; a.write_bytes(b"payload")
+    outdir = tmp_path / "out2"; outdir.mkdir()
+
+    class Fake:
+        def __init__(self):
+            self.outdir = outdir
+            self.summary = {"events": []}
+            import logging
+            self.logger = logging.getLogger("t")
+    Fake._save_library = Pipeline._save_library
+    Fake.event = Pipeline.event
+
+    f = Fake()
+    f._save_library((str(a), None), "clean")
+    dst = outdir / "intermediate_libraries" / "clean_R1.fastq.gz"
+    assert dst.read_bytes() == b"payload"
+    assert [e["name"] for e in f.summary["events"]] == ["saved_clean_library"]

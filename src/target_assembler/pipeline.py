@@ -5,6 +5,7 @@ import csv
 import errno
 import json
 import logging
+import os
 import re
 import shutil
 import tempfile
@@ -227,13 +228,30 @@ class Pipeline:
     def _save_library(self, reads: tuple[str, str | None], prefix: str) -> None:
         destination = self.outdir / "intermediate_libraries"
         destination.mkdir(parents=True, exist_ok=True)
-        suffix1 = ".fastq.gz" if str(reads[0]).endswith(".gz") else ".fastq"
-        saved = [str(destination / f"{prefix}_R1{suffix1}")]
-        shutil.copyfile(reads[0], saved[0])
-        if reads[1]:
-            suffix2 = ".fastq.gz" if str(reads[1]).endswith(".gz") else ".fastq"
-            saved.append(str(destination / f"{prefix}_R2{suffix2}"))
-            shutil.copyfile(reads[1], saved[1])
+        saved: list[str] = []
+        reused = 0
+        for index, source in enumerate((reads[0], reads[1]), start=1):
+            if not source:
+                continue
+            suffix = ".fastq.gz" if str(source).endswith(".gz") else ".fastq"
+            target = destination / f"{prefix}_R{index}{suffix}"
+            saved.append(str(target))
+            # A library supplied through input.clean_reads1/2 or
+            # input.sample_reads1/2 may BE the file this would copy it to: that is
+            # what happens when a previous run's intermediate_libraries/ is fed
+            # back in to skip preprocessing. shutil.copyfile then raises
+            #   SameFileError: '<path>' and '<path>' are the same file
+            # and the run dies after "clean_library: reused" with nothing to fix,
+            # because the file is already exactly where it is wanted.
+            try:
+                if target.exists() and os.path.samefile(source, target):
+                    reused += 1
+                    continue
+            except OSError:
+                pass
+            shutil.copyfile(source, target)
+        if reused:
+            self.event(f"saved_{prefix}_library_already_in_place", reused)
         self.event(f"saved_{prefix}_library", saved)
 
     def make_assembly_sample(self, clean: tuple[str, str | None]) -> tuple[str, str | None]:
