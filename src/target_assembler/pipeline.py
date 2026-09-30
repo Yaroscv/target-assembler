@@ -257,7 +257,7 @@ class Pipeline:
             fastq_to_fasta(*micro, micro_fasta)
             table = self.workdir / "micro.tbl"
             self.run_nhmmer(micro_fasta, table)
-            found = len({base_read_id(hit.target) for hit in parse_nhmmer_tbl(table)})
+            found = len({base_read_id(hit.target) for hit in self.filter_hmm_hits(parse_nhmmer_tbl(table))})
             self.event("micro_hmm_hit_units", found)
             if found:
                 requested = round(micro_n * int(sampling["target_hmm_hits"]) / found)
@@ -338,15 +338,52 @@ class Pipeline:
             except FileNotFoundError:
                 pass
 
+    def hmm_thresholds(self) -> tuple[float | None, float | None]:
+        """selection.hmm_evalue (-E) and selection.hmm_score_min (-T), or (None, None)."""
+        selection = self.config.get("selection", {})
+        evalue = selection.get("hmm_evalue")
+        score = selection.get("hmm_score_min")
+        return (None if evalue is None else float(evalue),
+                None if score is None else float(score))
+
+    def filter_hmm_hits(self, hits: list[HMMHit]) -> list[HMMHit]:
+        """Re-apply the configured thresholds after parsing.
+
+        nhmmer already applied them, so this normally changes nothing. It matters
+        when a table on disk was written by an earlier run with different
+        settings, and it makes the enforcement point explicit rather than
+        implicit in a command line built elsewhere.
+        """
+        evalue, score = self.hmm_thresholds()
+        if evalue is None and score is None:
+            return hits
+        kept = [
+            hit for hit in hits
+            if (evalue is None or hit.evalue <= evalue)
+            and (score is None or hit.score >= score)
+        ]
+        if len(kept) != len(hits):
+            self.event("hmm_hits_below_threshold", len(hits) - len(kept))
+        return kept
+
     def run_nhmmer(self, fasta: str | Path, table: str | Path, hmm: str | Path | None = None) -> None:
         chosen_hmm = hmm or self.hmm
         if chosen_hmm is None:
             raise TargetAssemblerError("No HMM was supplied for nhmmer")
+        command = [
+            "nhmmer", "--tblout", str(table), "--cpu", str(self.config["runtime"]["threads"]),
+        ]
+        # -T and -E are mutually exclusive in HMMER: a score threshold replaces
+        # the E-value model entirely, so -T wins when both are set and nothing
+        # silently applies two incompatible cutoffs.
+        evalue, score = self.hmm_thresholds()
+        if score is not None:
+            command += ["-T", repr(score), "--incT", repr(score)]
+        elif evalue is not None:
+            command += ["-E", repr(evalue), "--incE", repr(evalue)]
+        command += [str(chosen_hmm), str(fasta)]
         self.runner.run(
-            [
-                "nhmmer", "--tblout", str(table), "--cpu", str(self.config["runtime"]["threads"]),
-                str(chosen_hmm), str(fasta),
-            ],
+            command,
             stdout_path=str(table) + ".stdout",
             stderr_path=str(table) + ".stderr",
         )
@@ -392,7 +429,7 @@ class Pipeline:
         fastq_to_fasta(*normalized, all_fasta)
         table = self.workdir / "sample_hits.tbl"
         self.run_nhmmer(all_fasta, table)
-        hits = parse_nhmmer_tbl(table)
+        hits = self.filter_hmm_hits(parse_nhmmer_tbl(table))
         hit_names = {hit.target for hit in hits}
         selected_bases = {base_read_id(name) for name in hit_names}
         self.event("nhmmer_hit_reads", len(hit_names))
@@ -534,7 +571,7 @@ class Pipeline:
     def filter_contigs(self, contigs: Path, round_number: int) -> Path:
         table = self.workdir / f"contigs_r{round_number}.tbl"
         self.run_nhmmer(contigs, table)
-        wanted = {hit.target for hit in parse_nhmmer_tbl(table)}
+        wanted = {hit.target for hit in self.filter_hmm_hits(parse_nhmmer_tbl(table))}
         minimum = int(self.config["assembly"]["contig_min_length"])
         records = [record for record in iter_fasta(contigs) if record.name in wanted and len(record.sequence) >= minimum]
         if not records:
@@ -619,7 +656,7 @@ class Pipeline:
         write_fasta(renamed, renamed_fasta)
         first_table = self.workdir / "orientation_hits.tbl"
         self.run_nhmmer(renamed_fasta, first_table)
-        first_hits = parse_nhmmer_tbl(first_table)
+        first_hits = self.filter_hmm_hits(parse_nhmmer_tbl(first_table))
         best_hit: dict[str, HMMHit] = {}
         for hit in first_hits:
             if hit.target not in best_hit or hit.score > best_hit[hit.target].score:
@@ -636,7 +673,7 @@ class Pipeline:
         table = self.workdir / "oriented_hits.tbl"
         self.run_nhmmer(oriented_fasta, table)
         hits_by_contig: dict[str, list[HMMHit]] = defaultdict(list)
-        for hit in parse_nhmmer_tbl(table):
+        for hit in self.filter_hmm_hits(parse_nhmmer_tbl(table)):
             hits_by_contig[hit.target].append(hit)
         for hits in hits_by_contig.values():
             hits.sort(key=lambda item: item.start0)
@@ -1026,7 +1063,7 @@ class Pipeline:
             _, total_nt = fastq_to_fasta(*sample, fasta)
             table = self.workdir / f"proportion_r{replicate}.tbl"
             self.run_nhmmer(fasta, table, profile_hmm)
-            hits = parse_nhmmer_tbl(table)
+            hits = self.filter_hmm_hits(parse_nhmmer_tbl(table))
             aligned_nt = hit_nucleotides(hits, "aligned_nt")
             envelope_nt = hit_nucleotides(hits, "envelope_nt")
             rows.append(

@@ -59,6 +59,17 @@ DEFAULTS: dict[str, Any] = {
         "zero_hit_fallback_units": 1000000,
     },
     "selection": {
+        # HMM recruitment stringency. nhmmer's own default is -E 10, which for a
+        # conserved rRNA profile recruits across kingdoms: an 18S/5.8S/28S model
+        # built from a plant 35S unit scores fungal rDNA highly (measured: 52 of
+        # 60 read-length windows of a fungal rDNA contig scored above the default
+        # threshold against such a profile), so an unthresholded run pulls those
+        # reads into the target pool and assembles them as candidate variants. Both keys are applied to
+        # nhmmer AND re-applied after parsing the table, so a threshold is
+        # enforced even for a table written by an earlier run.
+        # null on both = previous behaviour (nhmmer default).
+        "hmm_evalue": None,      # -E  : report/keep hits at or below this E-value
+        "hmm_score_min": None,   # -T  : keep hits at or above this bit score
         "flank_bp": 100,
         "minimum_flank_length": 60,
         "blast_identity": 80.0,
@@ -329,6 +340,11 @@ def validate_config(config: dict[str, Any]) -> None:
         raise ConfigError("assembly.rounds must be 1 or 2")
     if config["extraction"]["mode"] not in {"tandem", "site"}:
         raise ConfigError("extraction.mode must be tandem or site")
+    sel = config["selection"]
+    if sel.get("hmm_evalue") is not None and float(sel["hmm_evalue"]) <= 0:
+        raise ConfigError("selection.hmm_evalue must be greater than 0, or null")
+    if sel.get("hmm_score_min") is not None and float(sel["hmm_score_min"]) < 0:
+        raise ConfigError("selection.hmm_score_min must be 0 or greater, or null")
     if config["sampling"]["mode"] not in {"adaptive", "fixed", "all"}:
         raise ConfigError("sampling.mode must be adaptive, fixed, or all")
     if config["proportion"]["report_metric"] not in {"aligned_nt", "envelope_nt"}:

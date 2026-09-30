@@ -84,6 +84,40 @@ Ready-to-edit examples are in `examples/`:
 - `validate-profiles.yaml`
 - `batch.yaml` with `samples.tsv`
 
+### HMM recruitment stringency
+
+`nhmmer` is invoked with its own default reporting threshold unless a cutoff is
+configured, and that default is `-E 10`. For a profile built over a ribosomal
+repeat this is rarely what you want: 18S, 5.8S and 28S are conserved across
+eukaryotes, so a profile built from a plant 35S unit scores **fungal** rDNA
+highly. Measured, not assumed: shredding a fungal rDNA contig into 150 bp
+windows and scanning it with such a profile put **52 of 60 windows above the
+default reporting threshold**, median bit score 66 and p90 108. In a
+genome-skimming library that contains any fungal rDNA at all, an unthresholded
+recruitment therefore pulls those reads into the target pool, MIRA assembles
+them, and they arrive in `Repeats_candidates.fasta` as candidate repeat variants
+— and `proportion` measures them.
+
+```yaml
+selection:
+  hmm_score_min: 98.4   # -T, a bit score; null = nhmmer's default
+  hmm_evalue: null      # -E, an E-value; null = nhmmer's default
+```
+
+Set one, not both: `-T` and `-E` are mutually exclusive in HMMER, so a score
+threshold replaces the E-value model entirely and `hmm_score_min` takes
+precedence when both are given. Both are also re-applied after the table is
+parsed, so a threshold holds even for a `--tblout` written by an earlier run, and
+the number of hits dropped is recorded as the `hmm_hits_below_threshold` event in
+the run summary rather than passing silently.
+
+A bit score threshold is only meaningful when it was **measured on the profile in
+question**, at the read length recruitment actually sees: nhmmer scores
+accumulate over the matching region, so a cutoff calibrated against multi-kb
+queries does not transfer to 150 bp reads. Shred a positive and a negative
+control into read-length windows, compare the score distributions, and take the
+threshold from the gap between them.
+
 ### Tandem extraction completeness
 
 In `extraction.mode: tandem`, a unit is cut from the end of one HMM hit to the end of the next hit in repeat orientation. `extraction.minimum_model_fraction` specifies how far the downstream hit must reach toward the 3-prime end of the HMM model (default `0.90`). The first hit defines only the left boundary and may be partial at a contig end; it is therefore not required to span the same fraction of the model. Set the value to `0` only to disable this downstream-completeness check explicitly.

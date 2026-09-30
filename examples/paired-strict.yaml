@@ -22,6 +22,13 @@ assembly:
   insert_size_max: 400
   mira_max_units: 50000
 
+selection:
+  # nhmmer's default is -E 10; for a conserved rRNA profile that recruits across
+  # kingdoms. A strict run should set a threshold measured on YOUR profile at read
+  # length. -T and -E are mutually exclusive: hmm_score_min wins.
+  hmm_score_min: null
+  hmm_evalue: null
+
 validation:
   profile: strict
   reference_mode: tandem

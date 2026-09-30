@@ -30,6 +30,13 @@ assembly:
   insert_size_min: 150
   insert_size_max: 450
 
+selection:
+  # nhmmer's default is -E 10, which for a conserved rRNA profile recruits across
+  # kingdoms. Set a threshold measured on YOUR profile at read length; null keeps
+  # the nhmmer default. -T and -E are mutually exclusive: hmm_score_min wins.
+  hmm_score_min: null
+  hmm_evalue: null
+
 extraction:
   mode: tandem
   minimum_model_fraction: 0.90

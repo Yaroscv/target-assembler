@@ -318,3 +318,116 @@ class CoreTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# --- selection.hmm_evalue / selection.hmm_score_min --------------------------
+# Added with the threshold keys: nhmmer's own default is -E 10, which for a
+# conserved rRNA profile recruits across kingdoms. These tests pin both the
+# command line and the post-parse filter.
+
+def test_hmm_threshold_defaults_are_none():
+    from target_assembler.config import DEFAULTS
+    assert DEFAULTS["selection"]["hmm_evalue"] is None
+    assert DEFAULTS["selection"]["hmm_score_min"] is None
+
+
+def test_hmm_threshold_validation_rejects_nonsense():
+    import pytest
+    from target_assembler.config import DEFAULTS, validate_config
+    from target_assembler.errors import ConfigError
+    import copy
+
+    def cfg(**sel):
+        c = copy.deepcopy(DEFAULTS)
+        c["project"]["mode"] = "proportion"
+        c["input"]["reads1"] = "r.fq"
+        c["input"]["layout"] = "single"
+        c["selection"].update(sel)
+        return c
+
+    validate_config(cfg())                          # both null: fine
+    validate_config(cfg(hmm_score_min=98.4))        # our calibrated value
+    validate_config(cfg(hmm_evalue=1e-10))
+    with pytest.raises(ConfigError):
+        validate_config(cfg(hmm_evalue=0))
+    with pytest.raises(ConfigError):
+        validate_config(cfg(hmm_score_min=-1))
+
+
+def test_filter_hmm_hits_applies_score_and_evalue():
+    from target_assembler.models import HMMHit
+
+    class Fake:
+        """Only what filter_hmm_hits touches."""
+        def __init__(self, **sel):
+            self.config = {"selection": dict(sel)}
+            self.summary = {"events": []}
+            import logging
+            self.logger = logging.getLogger("t")
+        filter_hmm_hits = None
+
+    from target_assembler.pipeline import Pipeline
+    Fake.filter_hmm_hits = Pipeline.filter_hmm_hits
+    Fake.hmm_thresholds = Pipeline.hmm_thresholds
+    Fake.event = Pipeline.event
+
+    def hit(score, evalue):
+        return HMMHit(target="r", hmm_from=1, hmm_to=10, ali_from=1, ali_to=10,
+                      env_from=1, env_to=10, target_length=150, strand="+",
+                      evalue=evalue, score=score)
+
+    hits = [hit(169.8, 1e-40), hit(98.4, 1e-20), hit(40.0, 0.5)]
+
+    # no thresholds: unchanged, and the object identity is preserved
+    assert Fake().filter_hmm_hits(hits) is hits
+
+    # score threshold at the calibrated separation point
+    kept = Fake(hmm_score_min=98.4).filter_hmm_hits(hits)
+    assert [h.score for h in kept] == [169.8, 98.4]
+
+    # E-value threshold
+    kept = Fake(hmm_evalue=1e-30).filter_hmm_hits(hits)
+    assert [h.score for h in kept] == [169.8]
+
+    # both: each is applied
+    kept = Fake(hmm_score_min=50.0, hmm_evalue=1e-30).filter_hmm_hits(hits)
+    assert [h.score for h in kept] == [169.8]
+
+    # the drop is recorded as an event, not silent
+    f = Fake(hmm_score_min=1000.0)
+    assert f.filter_hmm_hits(hits) == []
+    assert f.summary["events"][-1]["name"] == "hmm_hits_below_threshold"
+    assert f.summary["events"][-1]["value"] == 3
+
+
+def test_run_nhmmer_command_carries_the_threshold(tmp_path):
+    from target_assembler.pipeline import Pipeline
+
+    recorded = {}
+
+    class FakeRunner:
+        def run(self, command, stdout_path=None, stderr_path=None):
+            recorded["command"] = list(command)
+
+    class Fake:
+        hmm = "t.hmm"
+        def __init__(self, **sel):
+            self.config = {"selection": dict(sel), "runtime": {"threads": 4}}
+            self.runner = FakeRunner()
+    Fake.hmm_thresholds = Pipeline.hmm_thresholds
+    Fake.run_nhmmer = Pipeline.run_nhmmer
+
+    Fake().run_nhmmer("in.fa", tmp_path / "t.tbl")
+    assert "-T" not in recorded["command"] and "-E" not in recorded["command"]
+
+    Fake(hmm_score_min=98.4).run_nhmmer("in.fa", tmp_path / "t.tbl")
+    assert "-T" in recorded["command"] and "--incT" in recorded["command"]
+    assert "-E" not in recorded["command"]
+
+    Fake(hmm_evalue=1e-10).run_nhmmer("in.fa", tmp_path / "t.tbl")
+    assert "-E" in recorded["command"] and "--incE" in recorded["command"]
+    assert "-T" not in recorded["command"]
+
+    # -T and -E are mutually exclusive in HMMER; -T must win, alone
+    Fake(hmm_score_min=98.4, hmm_evalue=1e-10).run_nhmmer("in.fa", tmp_path / "t.tbl")
+    assert "-T" in recorded["command"] and "-E" not in recorded["command"]
