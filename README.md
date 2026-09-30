@@ -295,7 +295,12 @@ target-assembler run analysis.yaml --save-intermediate-libraries
 They are written to `intermediate_libraries/` inside the sample result directory.
 
 A later run can feed those files straight back in through `input.clean_reads1/2`
-and `input.sample_reads1/2` to skip preprocessing and sampling. The save step then
+and `input.sample_reads1/2` to skip preprocessing and sampling. **Supplying
+`clean_reads1/2` alone is also valid**, and is what you want when re-running with a
+different HMM: preprocessing is independent of the profile and expensive, while
+adaptive sampling is a function of the profile and cheap, so the cleaned library
+should be reused and the sample rebuilt. A sample sized against one profile will
+under-recruit for a profile covering a different fraction of the target. The save step then
 targets the file it has just read; it detects that the library is already in place
 and leaves it alone, recording `saved_<prefix>_library_already_in_place` instead of
 failing with `SameFileError`. For complete debugging state, including MIRA work directories and indexes, use `runtime.keep_work: true` or `--keep-work`. Both options can require substantial disk space and are disabled by default.

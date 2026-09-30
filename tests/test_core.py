@@ -484,3 +484,41 @@ def test_save_library_still_copies_from_elsewhere(tmp_path):
     dst = outdir / "intermediate_libraries" / "clean_R1.fastq.gz"
     assert dst.read_bytes() == b"payload"
     assert [e["name"] for e in f.summary["events"]] == ["saved_clean_library"]
+
+
+# --- a cleaned library without a sample is a supported input state -----------
+# prepare_libraries builds the assembly sample from clean when no sample is
+# given; the validator used to require both, which blocked re-running with a
+# different HMM while reusing an expensive fastp pass.
+
+def _cfg_clean_only(tmp_path, with_sample=False):
+    import copy
+    from target_assembler.config import DEFAULTS
+    c = copy.deepcopy(DEFAULTS)
+    c["project"]["mode"] = "variants"
+    c["input"]["layout"] = "paired"
+    c["input"]["hmm"] = "t.hmm"
+    c["input"]["clean_reads1"] = "clean_R1.fastq.gz"
+    c["input"]["clean_reads2"] = "clean_R2.fastq.gz"
+    if with_sample:
+        c["input"]["sample_reads1"] = "sample_R1.fastq.gz"
+        c["input"]["sample_reads2"] = "sample_R2.fastq.gz"
+    return c
+
+
+def test_clean_without_sample_is_accepted(tmp_path):
+    from target_assembler.config import validate_config
+    validate_config(_cfg_clean_only(tmp_path))                 # used to raise
+    validate_config(_cfg_clean_only(tmp_path, with_sample=True))
+
+
+def test_no_reads_at_all_is_still_rejected(tmp_path):
+    import copy, pytest
+    from target_assembler.config import DEFAULTS, validate_config
+    from target_assembler.errors import ConfigError
+    c = copy.deepcopy(DEFAULTS)
+    c["project"]["mode"] = "variants"
+    c["input"]["layout"] = "single"
+    c["input"]["hmm"] = "t.hmm"
+    with pytest.raises(ConfigError):
+        validate_config(c)

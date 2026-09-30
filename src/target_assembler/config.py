@@ -312,8 +312,18 @@ def validate_config(config: dict[str, Any]) -> None:
     has_clean = bool(inp.get("clean_reads1"))
     has_sample = bool(inp.get("sample_reads1"))
     has_validation = bool(inp.get("validation_reads1"))
-    if mode in {"all", "variants"} and not (has_raw or (has_clean and has_sample)):
-        raise ConfigError("Variant assembly needs raw reads, or both clean and sampled reads")
+    # A cleaned library WITHOUT a sample is a supported state: prepare_libraries
+    # takes clean_reads1/2 when present and, with no sample_reads1/2, builds the
+    # assembly sample from it with make_assembly_sample(). That is the natural way
+    # to re-run with a different HMM - preprocessing is profile-independent and
+    # expensive, adaptive sampling is profile-DEPENDENT and cheap, so the sample
+    # must be rebuilt while the cleaned library is reused. Requiring a sample
+    # alongside clean made the check stricter than the pipeline and rejected it.
+    if mode in {"all", "variants"} and not (has_raw or has_clean):
+        raise ConfigError(
+            "Variant assembly needs raw reads, or a cleaned library "
+            "(input.clean_reads1/2, with input.sample_reads1/2 optional)"
+        )
     if mode == "proportion" and not (has_raw or has_clean):
         raise ConfigError("Proportion mode needs raw or clean reads")
     if mode == "validate" and not (has_validation or has_clean or has_raw):
