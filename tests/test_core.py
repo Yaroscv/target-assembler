@@ -615,3 +615,83 @@ def test_expansion_limit_drops_only_the_read_clipped_inside_the_contig(tmp_path)
 def test_max_internal_clip_validation(tmp_path):
     from target_assembler.config import DEFAULTS
     assert DEFAULTS["expansion"]["max_internal_clip"] is None
+
+
+# --- assembly.mira_threads: MIRA's thread count, apart from runtime.threads ----
+
+def test_mira_threads_default_and_override():
+    from target_assembler.pipeline import Pipeline
+    from target_assembler.config import DEFAULTS
+    assert DEFAULTS["assembly"]["mira_threads"] is None
+
+    class Fake:
+        def __init__(self, mt):
+            self.config = {"runtime": {"threads": 8}, "assembly": {"mira_threads": mt}}
+    Fake.mira_threads = Pipeline.mira_threads
+    assert Fake(None).mira_threads() == 8
+    assert Fake(1).mira_threads() == 1
+
+    class Old:     # a config written before the key existed
+        config = {"runtime": {"threads": 6}, "assembly": {}}
+    Old.mira_threads = Pipeline.mira_threads
+    assert Old().mira_threads() == 6
+
+
+def test_mira_threads_reaches_the_manifest(tmp_path):
+    from target_assembler.pipeline import Pipeline
+
+    class Result:
+        returncode = 0
+
+    class FakeRunner:
+        def run(self, command, cwd=None, stdout_path=None, stderr_path=None, check=True):
+            return Result()
+
+    class Fake:
+        def __init__(self, mt):
+            self.config = {
+                "project": {"name": "T"}, "runtime": {"threads": 8, "seed": 1},
+                "assembly": {"mira_max_units": 0, "parameters": ["COMMON_SETTINGS", "-GE:not=3"],
+                             "job": "denovo,est,accurate", "insert_size_min": 150,
+                             "insert_size_max": 550, "segment_placement": "---> <---",
+                             "technology": "solexa", "mira_threads": mt},
+            }
+            self.mira_dir = tmp_path
+            self.runner = FakeRunner()
+            self.summary = {"events": []}
+        def event(self, name, value):
+            self.summary["events"].append({"name": name, "value": value})
+    for name in ("run_mira", "mira_threads"):
+        setattr(Fake, name, getattr(Pipeline, name))
+    r1, r2 = tmp_path / "in_R1.fastq", tmp_path / "in_R2.fastq"
+    r1.write_text("@a/1\nACGT\n+\nIIII\n"); r2.write_text("@a/2\nACGT\n+\nIIII\n")
+    for mt, want in ((None, "-GE:not=8"), (1, "-GE:not=1")):
+        try:
+            Fake(mt).run_mira((str(r1), str(r2)), 2)
+        except Exception:
+            pass                       # no MIRA here: only the manifest is checked
+        line = [l for l in (tmp_path / "T_r2.manifest.conf").read_text().splitlines()
+                if l.startswith("parameters")][0]
+        # the configured value is LAST, so it wins over -GE:not inside parameters
+        assert line.split()[-1] == want, line
+
+
+def test_mira_threads_validation():
+    import pytest
+    from target_assembler.config import validate_config, DEFAULTS
+    from target_assembler.errors import ConfigError
+    import copy
+
+    def cfg(mt):
+        c = copy.deepcopy(DEFAULTS)
+        c["project"]["mode"] = "proportion"
+        c["input"]["reads1"] = "r.fq"
+        c["input"]["layout"] = "single"
+        c["assembly"]["mira_threads"] = mt
+        return c
+
+    validate_config(cfg(None))
+    validate_config(cfg(1))
+    for bad in (0, -1, True):
+        with pytest.raises(ConfigError, match="mira_threads"):
+            validate_config(cfg(bad))

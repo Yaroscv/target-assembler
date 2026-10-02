@@ -362,6 +362,8 @@ assembly:
 
 The value is passed to MIRA after a conservative character-safety check, allowing other MIRA-supported technologies without changing Python code. For Illumina data, use `solexa`.
 
+`assembly.mira_threads` (default `null` = `runtime.threads`) sets MIRA's own thread count, passed as `-GE:not` after `parameters` - so a `-GE:not` written into `parameters` has no effect. On several threads MIRA can return a different contig set from identical input; `mira_threads: 1` makes a run repeatable while fastp, nhmmer, BLAST and bowtie2 keep `runtime.threads`.
+
 `mira_max_units` controls only the target-enriched library entering each MIRA round. It does not change the genome-proportion sample size. A value of `0` disables MIRA downsampling.
 
 ## Genome proportion

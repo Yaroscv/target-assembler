@@ -558,6 +558,12 @@ class Pipeline:
             )
         return (str(out1), str(out2) if out2 else None), units
 
+    def mira_threads(self) -> int:
+        """MIRA's thread count: assembly.mira_threads if set, else runtime.threads.
+        Appended LAST, so a -GE:not inside assembly.parameters never takes effect."""
+        value = self.config["assembly"].get("mira_threads")
+        return int(value) if value is not None else int(self.config["runtime"]["threads"])
+
     def run_mira(self, reads: tuple[str, str | None], round_number: int) -> Path:
         total = count_units(*reads)
         limit = int(self.config["assembly"]["mira_max_units"] or 0)
@@ -571,7 +577,7 @@ class Pipeline:
         manifest = self.mira_dir / f"{project}.manifest.conf"
         assembly = self.config["assembly"]
         parameters = [str(item) for item in assembly["parameters"]]
-        parameters.append(f"-GE:not={self.config['runtime']['threads']}")
+        parameters.append(f"-GE:not={self.mira_threads()}")
         lines = [
             f"project = {project}",
             f"job = {assembly['job']}",

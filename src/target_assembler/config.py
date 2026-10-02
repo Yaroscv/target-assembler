@@ -88,6 +88,11 @@ DEFAULTS: dict[str, Any] = {
         "job": "denovo,est,accurate",
         "parameters": ["COMMON_SETTINGS", "-NW:cmrnl=no", "-NW:ctp=no", "-NW:cac=no"],
         "fallback_to_round1": True,
+        # MIRA's own thread count (-GE:not). null = runtime.threads, the upstream
+        # behaviour. MIRA's contig set varies between runs on identical input when
+        # it runs on several threads; 1 makes it repeatable without slowing the
+        # other tools, which keep runtime.threads.
+        "mira_threads": None,
     },
     "expansion": {
         "enabled": True,
@@ -383,6 +388,9 @@ def validate_config(config: dict[str, Any]) -> None:
         raise ConfigError("extraction.minimum_model_fraction must be between 0 and 1")
     if int(config["assembly"]["mira_max_units"] or 0) < 0:
         raise ConfigError("assembly.mira_max_units cannot be negative")
+    mira_threads = config.get("assembly", {}).get("mira_threads")
+    if mira_threads is not None and (isinstance(mira_threads, bool) or int(mira_threads) < 1):
+        raise ConfigError("assembly.mira_threads must be a positive integer or null")
     clip = config.get("expansion", {}).get("max_internal_clip")
     if clip is not None and (isinstance(clip, bool) or int(clip) < 0):
         raise ConfigError("expansion.max_internal_clip must be a non-negative integer or null")
