@@ -118,6 +118,27 @@ queries does not transfer to 150 bp reads. Shred a positive and a negative
 control into read-length windows, compare the score distributions, and take the
 threshold from the gap between them.
 
+### Round-2 expansion: reads clipped inside a contig
+
+Round 2 recruits every read of the clean library that bowtie2 aligns locally to a
+round-1 contig. A *local* alignment can stop anywhere, so a read that shares only
+a conserved stretch with a contig - foreign rDNA on the universal 5.8S block, for
+example - is recruited too, with the rest of it soft-clipped. MIRA then sees
+several different continuations out of the same block, which is a repeat signal.
+
+`expansion.max_internal_clip` (bp, default `null` = no test) rejects an alignment
+whose clip exceeds the limit **where the contig still continues**. Clipping where
+the read runs off a contig end is never counted, so reads that extend a contig -
+the point of round 2 - are kept.
+
+```yaml
+expansion:
+  max_internal_clip: 20    # null keeps the upstream behaviour
+```
+
+The number of rejected alignments is recorded as the
+`expansion_internal_clip_rejected` event.
+
 ### Tandem extraction completeness
 
 In `extraction.mode: tandem`, a unit is cut from the end of one HMM hit to the end of the next hit in repeat orientation. `extraction.minimum_model_fraction` specifies how far the downstream hit must reach toward the 3-prime end of the HMM model (default `0.90`). The first hit defines only the left boundary and may be partial at a contig end; it is therefore not required to span the same fraction of the model. Set the value to `0` only to disable this downstream-completeness check explicitly.

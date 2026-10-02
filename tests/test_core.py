@@ -522,3 +522,96 @@ def test_no_reads_at_all_is_still_rejected(tmp_path):
     c["input"]["hmm"] = "t.hmm"
     with pytest.raises(ConfigError):
         validate_config(c)
+
+
+# --- expansion.max_internal_clip ----------------------------------------------
+# A read may be clipped where it runs off a reference end, never where the
+# reference continues: that is a read that shares a stretch and then diverges.
+
+def test_internal_clip_counts_only_clipping_against_reference():
+    from target_assembler.pipeline import internal_clip
+
+    # fully aligned in the middle of a 600 bp contig
+    assert internal_clip(101, "150M", 600) == (0, 0)
+    # hangs 40 bp off the contig START: external, not internal
+    assert internal_clip(1, "40S110M", 600) == (0, 0)
+    # hangs 40 bp off the contig END (aligned 561..600): external
+    assert internal_clip(561, "40M110S", 600) == (0, 0)
+    # aligned to 70 bp in the middle, clipped on both sides where the contig
+    # continues: a foreign read on a conserved block
+    assert internal_clip(281, "40S70M40S", 600) == (40, 40)
+    # partly external: 30 bp of reference before the alignment, 50 bp clipped
+    assert internal_clip(31, "50S100M", 600) == (30, 0)
+    # indels count on the reference side only
+    assert internal_clip(101, "50M2D50M10I40M", 600) == (0, 0)
+    # unknown reference length: a right clip is treated as internal
+    assert internal_clip(101, "100M50S", 0) == (0, 50)
+
+
+def _expansion_fake(tmp_path, sam_lines, clip):
+    """expand_reads with bowtie2 replaced by a canned SAM stream."""
+    import subprocess
+    from target_assembler.pipeline import Pipeline
+
+    ref = tmp_path / "ref.fasta"
+    ref.write_text(">c1\n" + "A" * 600 + "\n", encoding="utf-8")
+    names = ["frax", "foreign", "overhang"]
+    write_fastq(tmp_path / "c_R1.fastq", names, 1)
+    write_fastq(tmp_path / "c_R2.fastq", names, 2)
+
+    class Runner:
+        def run(self, *a, **k):
+            pass
+
+        def popen_stdout(self, command, stderr_path):
+            text = "@HD\tVN:1.0\n" + "".join(l + "\n" for l in sam_lines)
+            proc = subprocess.Popen(["cat"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+            proc.stdin.write(text)
+            proc.stdin.close()
+            return proc, open(stderr_path, "w", encoding="utf-8")
+
+    class Fake:
+        def __init__(self):
+            self.config = {"expansion": {"enabled": True, "alignment": "local",
+                                         "sensitivity": "very-sensitive", "minimum_mapq": 0,
+                                         "max_alignments": 1, "max_internal_clip": clip},
+                           "runtime": {"threads": 1}}
+            self.workdir = tmp_path
+            self.runner = Runner()
+            self.summary = {"events": []}
+
+        def event(self, name, value=None):
+            self.summary["events"].append({"name": name, "value": value})
+
+    Fake.expand_reads = Pipeline.expand_reads
+    f = Fake()
+    out = f.expand_reads(ref, (str(tmp_path / "c_R1.fastq"), str(tmp_path / "c_R2.fastq")))
+    return f, out
+
+
+SAM_ROWS = [
+    "frax/1\t0\tc1\t101\t42\t150M\t*\t0\t0\t*\t*",
+    "foreign/1\t0\tc1\t281\t42\t40S70M40S\t*\t0\t0\t*\t*",
+    "overhang/1\t0\tc1\t561\t42\t40M110S\t*\t0\t0\t*\t*",
+]
+
+
+def test_expansion_without_limit_keeps_everything(tmp_path):
+    f, out = _expansion_fake(tmp_path, SAM_ROWS, None)
+    events = {e["name"]: e["value"] for e in f.summary["events"]}
+    assert events["expanded_units"] == 3
+    assert "expansion_internal_clip_rejected" not in events
+
+
+def test_expansion_limit_drops_only_the_read_clipped_inside_the_contig(tmp_path):
+    f, out = _expansion_fake(tmp_path, SAM_ROWS, 20)
+    events = {e["name"]: e["value"] for e in f.summary["events"]}
+    assert events["expanded_units"] == 2
+    assert events["expansion_internal_clip_rejected"] == {"limit": 20, "alignments": 1}
+    kept = [r.name for r in iter_fastq(out[0])]
+    assert not any(n.startswith("foreign") for n in kept)
+
+
+def test_max_internal_clip_validation(tmp_path):
+    from target_assembler.config import DEFAULTS
+    assert DEFAULTS["expansion"]["max_internal_clip"] is None

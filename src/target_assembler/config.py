@@ -95,6 +95,9 @@ DEFAULTS: dict[str, Any] = {
         "sensitivity": "very-sensitive",
         "minimum_mapq": 0,
         "max_alignments": 1,
+        # Largest soft/hard clip allowed where the reference contig CONTINUES
+        # (bp). null = no test, the upstream behaviour. See pipeline.internal_clip.
+        "max_internal_clip": None,
     },
     "extraction": {
         "mode": "tandem",
@@ -380,6 +383,9 @@ def validate_config(config: dict[str, Any]) -> None:
         raise ConfigError("extraction.minimum_model_fraction must be between 0 and 1")
     if int(config["assembly"]["mira_max_units"] or 0) < 0:
         raise ConfigError("assembly.mira_max_units cannot be negative")
+    clip = config.get("expansion", {}).get("max_internal_clip")
+    if clip is not None and (isinstance(clip, bool) or int(clip) < 0):
+        raise ConfigError("expansion.max_internal_clip must be a non-negative integer or null")
     if int(config["assembly"]["insert_size_min"]) > int(config["assembly"]["insert_size_max"]):
         raise ConfigError("assembly.insert_size_min cannot exceed insert_size_max")
     if not isinstance(config["outputs"]["save_intermediate_libraries"], bool):

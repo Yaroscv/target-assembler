@@ -36,6 +36,38 @@ from .proportion import hit_nucleotides, summarise_replicates
 from .validation import alignment_mode_flag, evaluate_metrics, measure_candidates, validate_candidates
 
 
+_CIGAR = re.compile(r"(\d+)([MIDNSHP=X])")
+
+
+def internal_clip(pos1: int, cigar: str, ref_length: int) -> tuple[int, int]:
+    """Soft/hard-clipped bases that had REFERENCE to align to, left and right.
+
+    A clip is "external" where the read runs off an end of the reference and
+    "internal" where the reference continues. Only the internal part is returned:
+    min(left clip, bases of reference before the alignment) and the same on the
+    right. An unknown reference length (0) makes every right clip internal.
+    """
+    ops = [(int(n), op) for n, op in _CIGAR.findall(cigar)]
+    if not ops:
+        return 0, 0
+    left = 0
+    for n, op in ops:
+        if op in "SH":
+            left += n
+        else:
+            break
+    right = 0
+    for n, op in reversed(ops):
+        if op in "SH":
+            right += n
+        else:
+            break
+    ref_span = sum(n for n, op in ops if op in "MDN=X")
+    before = max(0, pos1 - 1)
+    after = max(0, ref_length - (pos1 - 1 + ref_span)) if ref_length else right
+    return min(left, before), min(right, after)
+
+
 class Pipeline:
     def __init__(self, config: dict, dry_run: bool = False):
         self.config = config
@@ -625,6 +657,16 @@ class Pipeline:
             command, stderr_path=self.workdir / "expansion_bowtie2.log"
         )
         wanted: set[str] = set()
+        # expansion.max_internal_clip: a local alignment may soft-clip a read only
+        # where the read runs off the END of the reference contig. Clipping where
+        # the contig still continues means the read shares a stretch with the
+        # contig and then diverges - foreign rDNA aligned to the conserved 5.8S
+        # block, for instance. null keeps the upstream behaviour (no test).
+        clip_limit = expansion.get("max_internal_clip")
+        ref_lengths: dict[str, int] = {}
+        if clip_limit is not None:
+            ref_lengths = {record.name: len(record.sequence) for record in iter_fasta(reference)}
+        clip_rejected = 0
         assert process.stdout is not None
         try:
             for line in process.stdout:
@@ -633,10 +675,19 @@ class Pipeline:
                 columns = line.rstrip("\n").split("\t")
                 if len(columns) >= 5 and not (int(columns[1]) & 0x4):
                     if int(columns[4]) >= int(expansion["minimum_mapq"]):
+                        if clip_limit is not None and len(columns) >= 6:
+                            left, right = internal_clip(
+                                int(columns[3]), columns[5], ref_lengths.get(columns[2], 0)
+                            )
+                            if max(left, right) > int(clip_limit):
+                                clip_rejected += 1
+                                continue
                         wanted.add(base_read_id(columns[0]))
         finally:
             process.stdout.close()
         check_stream(process, stderr_handle, "Bowtie2 library expansion")
+        if clip_limit is not None:
+            self.event("expansion_internal_clip_rejected", {"limit": int(clip_limit), "alignments": clip_rejected})
         if not wanted:
             self.event("expanded_units", 0)
             return None
