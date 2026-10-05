@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "target-assembler"
-version = "0.1.0"
+version = "0.1.0+specieshunter.5"
 description = "Configurable reference-guided MIRA pipeline for recovering repeat sequence diversity from short-read libraries"
 readme = "README.md"
 requires-python = ">=3.10"

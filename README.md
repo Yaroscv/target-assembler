@@ -4,7 +4,43 @@
 
 The intended result is not a single majority consensus. The pipeline preserves distinct assembled candidates, their provenance, and the evidence supporting each candidate.
 
-Current release: **0.1.0**.
+Current release: **0.1.0+specieshunter.5** - upstream 0.1.0 plus the five commits
+of branch `species-hunter` below. The `+specieshunter.5` part is a PEP 440 *local
+version label*: it marks a build of 0.1.0 with local changes, sorts after 0.1.0,
+and can never collide with a future upstream release number (0.1.1, 0.2.0, ...),
+which remains the upstream author's to choose.
+
+## This fork: branch `species-hunter`
+
+This branch is upstream **v0.1.0 plus five commits**, written while running
+target-assembler on 35S rDNA of *Fraxinus* (ash) whole-genome libraries in the
+[species-hunter](https://github.com/Yaroscv/species-hunter) workflow. Each commit
+adds one configuration key or fixes one failure; **every new key defaults to
+`null`, which reproduces the upstream behaviour exactly**, so an existing YAML runs
+unchanged. Each commit carries its own tests (32 tests in total pass with
+`PYTHONPATH=src python -m unittest discover -s tests -v`).
+
+| # | commit | new key / behaviour | default | recorded as | why it was needed |
+|---|---|---|---|---|---|
+| 1 | HMM recruitment stringency | `selection.hmm_score_min` (`-T`), `selection.hmm_evalue` (`-E`), applied at every `nhmmer` call and re-applied after the table is parsed | `null` (nhmmer's own default, `-E 10`) | event `hmm_hits_below_threshold` | a plant 35S profile scores fungal rDNA: 52 of 60 fungal 150 bp windows passed the default threshold (section *HMM recruitment stringency*) |
+| 2 | no self-copy of a resumed library | when the library being saved is the file the run read, it is left in place | - | event `saved_<prefix>_library_already_in_place` | a run resumed from `intermediate_libraries/` failed with `SameFileError` |
+| 3 | cleaned library without a sample | `input.clean_reads1/2` accepted without `input.sample_reads1/2`; sampling is rebuilt | - | - | reuse the expensive cleaned library with a different HMM; a sample sized for one profile under-recruits for another |
+| 4 | round-2 internal-clip filter | `expansion.max_internal_clip` (bp): reject a local alignment clipped where the contig continues | `null` (no test) | event `expansion_internal_clip_rejected` | reads sharing only the universal 5.8S block (foreign rDNA) were recruited and broke MIRA's contigs at the core (section *Round-2 expansion*) |
+| 5 | MIRA's own thread count | `assembly.mira_threads`, passed as `-GE:not` after `parameters` | `null` (= `runtime.threads`) | - | MIRA on several threads returned different contig sets from identical input; one thread is repeatable |
+
+Install the branch:
+
+```bash
+git clone -b species-hunter https://github.com/Yaroscv/target-assembler.git
+cd target-assembler && python -m pip install -e .
+target-assembler --version                                    # target-assembler 0.1.0+specieshunter.5
+python -c "from target_assembler.config import DEFAULTS as D; print(D['selection']['hmm_score_min'], D['expansion']['max_internal_clip'], D['assembly']['mira_threads'])"   # None None None
+```
+
+The settings used with these keys for a 35S rDNA target, and why, are in
+species-hunter's `params/ta_35S.yaml`; the notes below (*MIRA settings for rDNA
+targets*, *Tandem extraction completeness*) record what those runs showed about
+the upstream options themselves.
 
 ## Capabilities
 
@@ -142,6 +178,21 @@ The number of rejected alignments is recorded as the
 ### Tandem extraction completeness
 
 In `extraction.mode: tandem`, a unit is cut from the end of one HMM hit to the end of the next hit in repeat orientation. `extraction.minimum_model_fraction` specifies how far the downstream hit must reach toward the 3-prime end of the HMM model (default `0.90`). The first hit defines only the left boundary and may be partial at a contig end; it is therefore not required to span the same fraction of the model. Set the value to `0` only to disable this downstream-completeness check explicitly.
+
+Tandem mode therefore needs **two consecutive hits on one contig**, i.e. a contig
+longer than about two repeat periods. Consecutive hits are one repeat period
+apart, which is a property of the genome, not of the profile: for 5S rDNA (period
+300-500 bp) a 2-3 kb contig holds several copies, which is why the 5S examples
+work; for 35S rDNA the period is at least the unit length (~6.4 kb), so tandem
+extraction needs a contig of ~13 kb or more. With a profile over the whole 35S unit
+a contig of one complete unit plus
+part of its spacer has a single hit, and the run reports `tandem_hit_pairs: 0`
+with nothing extracted, although the unit itself was assembled (6,778 bp contig
+covering model 2-6366 on an ash library). For such targets use
+`extraction.mode: site`, which extracts one hit covering at least
+`minimum_model_fraction` of the model. A profile over a short part of the unit
+(ITS only) does not help tandem mode either: consecutive hits are still one
+repeat period apart.
 
 ## Sequential batch analysis
 
@@ -363,6 +414,37 @@ assembly:
 The value is passed to MIRA after a conservative character-safety check, allowing other MIRA-supported technologies without changing Python code. For Illumina data, use `solexa`.
 
 `assembly.mira_threads` (default `null` = `runtime.threads`) sets MIRA's own thread count, passed as `-GE:not` after `parameters` - so a `-GE:not` written into `parameters` has no effect. On several threads MIRA can return a different contig set from identical input; `mira_threads: 1` makes a run repeatable while fastp, nhmmer, BLAST and bowtie2 keep `runtime.threads`.
+
+### MIRA settings for rDNA targets
+
+MIRA 5 has a **built-in rRNA read filter** (`-CL:frrna`). It was on with the
+upstream `job: denovo,est,accurate` settings (MIRA's own parameter dump: `Filter
+rRNA (frrna) : yes`), and for an rDNA target it removes the target itself. On one ash
+library (43,458 round-2 reads) MIRA put ~97 % of its input into the debris list,
+30,599 reads of them as `CLIP_RRNA` / `CLIP_RRNA_PAIR`; no contig crossed the 5.8S
+core. With the filter off and nothing else changed, contigs carried the whole
+ITS1-5.8S-ITS2 for the first time. Two practical points:
+
+- the option belongs under `COMMON_SETTINGS`; under `SOLEXA_SETTINGS` MIRA 5 aborts
+  ("Aborting process probably due to an error in the input data or parameters");
+- MIRA's lossless digital normalisation (`-KS:ldn`) then becomes the largest
+  read reducer (90 % of the same input). It was left on in these runs, which then
+  returned full-length ITS in every sample; whether it costs minor ribotypes was
+  not tested separately.
+
+```yaml
+assembly:
+  parameters:
+    - COMMON_SETTINGS
+    - -NW:cmrnl=no
+    - -NW:ctp=no
+    - -NW:cac=no
+    - -CL:frrna=no       # rDNA targets: do not let MIRA filter rRNA reads
+  mira_threads: 1        # fork commit 5: repeatable contigs
+```
+
+MIRA prints the values it actually used at the top of its stdout log
+(`Filter rRNA (frrna) : no`); check them there rather than in the manifest.
 
 `mira_max_units` controls only the target-enriched library entering each MIRA round. It does not change the genome-proportion sample size. A value of `0` disables MIRA downsampling.
 
